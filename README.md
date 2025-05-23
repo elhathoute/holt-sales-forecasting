@@ -48,4 +48,6 @@ pip install -r requirements.txt
 run app
 streamlit run app.py
 
-▶️ [Watch demo video](video.mp4)
+## Demo Video
+
+[Watch the demo video](./video.mp4)
