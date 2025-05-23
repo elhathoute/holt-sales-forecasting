@@ -50,4 +50,6 @@ streamlit run app.py
 
 ## Demo Video
 
-[Watch the demo video](./video.mp4)
+[Watch the demo video]
+![Streamlit-05-23-2025_05_18_PM](https://github.com/user-attachments/assets/b2ec6712-0ebf-4f3e-ae92-480e56b9c896)
+
