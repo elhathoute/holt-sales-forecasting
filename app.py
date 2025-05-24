@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from io import BytesIO
+from streamlit.runtime.scriptrunner import RerunException, RerunData
 
 # Holt's Double Exponential Smoothing function
 def holt_forecast(data, alpha=0.2, beta=0.1, periods=1):
@@ -47,7 +48,7 @@ def main():
     # Reset button
     if st.button("🔄 Réinitialiser"):
         reset_session()
-        st.experimental_rerun()  # Note : st.rerun() deprecated, on utilise experimental_rerun()
+        raise RerunException(RerunData())  # Note : st.rerun() deprecated, on utilise experimental_rerun()
 
     # Load data
     try:
