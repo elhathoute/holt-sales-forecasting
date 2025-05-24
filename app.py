@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from io import BytesIO
 
 # Holt's Double Exponential Smoothing function
 def holt_forecast(data, alpha=0.2, beta=0.1, periods=1):
@@ -35,10 +36,18 @@ def load_articles():
     df['code ean uvc'] = df['code ean uvc'].astype(str)
     return df
 
-# Main app
+def reset_session():
+    for key in st.session_state.keys():
+        del st.session_state[key]
+
 def main():
     st.set_page_config(layout="wide")
     st.markdown("# Série à prévoir")
+
+    # Reset button
+    if st.button("🔄 Réinitialiser"):
+        reset_session()
+        st.rerun()
 
     # Load data
     try:
@@ -52,9 +61,18 @@ def main():
     with col1:
         selected_ean = st.selectbox(
             "Code article :",
-            options=df_articles['code ean uvc'].unique(),
+            options=[""] + df_articles['code ean uvc'].unique().tolist(),
             index=0
         )
+
+    if selected_ean == "":
+        st.warning("Veuillez sélectionner un code article.")
+        st.stop()
+
+    # Vérifier que le code article existe
+    if selected_ean not in df_articles['code ean uvc'].values:
+        st.error("Le code article sélectionné n'existe pas dans le fichier.")
+        st.stop()
 
     article_info = df_articles[df_articles['code ean uvc'] == selected_ean].iloc[0]
 
@@ -68,72 +86,115 @@ def main():
     st.markdown("## Générer les prévisions")
     st.markdown("### Donnée historique des 12 derniers mois:")
 
+    # Upload file
+    uploaded_file = st.file_uploader(
+        "Importer un fichier Excel avec données historiques",
+        type=['xlsx', 'xls'],
+        help="Le fichier doit contenir 2 colonnes: 'mois' et 'value'"
+    )
+
     months = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
               "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
 
-    cols = st.columns(12)
     historical_data = []
-    for i, col in enumerate(cols):
-        with col:
-            historical_data.append(col.number_input(
-                f"{i+1}",
-                min_value=0.0,
-                value=0.0,
-                step=1.0,
-                key=f"hist_{i}"
-            ))
 
-    # Number of periods to forecast
+    if uploaded_file is not None:
+        try:
+            df_history = pd.read_excel(uploaded_file, engine='openpyxl')
+            if {'mois', 'value'}.issubset(df_history.columns):
+                if len(df_history) >= 12:
+                    historical_data = df_history['value'].head(12).tolist()
+                    st.success("Données historiques importées avec succès!")
+                else:
+                    st.warning("Le fichier doit contenir au moins 12 mois de données")
+            else:
+                st.error("Le fichier doit contenir les colonnes 'mois' et 'value'")
+        except Exception as e:
+            st.error(f"Erreur de lecture du fichier: {e}")
+
+    # Saisie manuelle si pas de fichier
+    if not historical_data:
+        st.info("Ou saisir manuellement les données:")
+        cols = st.columns(12)
+        historical_data = []
+        for i, col in enumerate(cols):
+            with col:
+                historical_data.append(col.number_input(
+                    f"{i+1}",
+                    min_value=0.0,
+                    value=0.0,
+                    step=1.0,
+                    key=f"hist_{i}"
+                ))
+
+    # Toujours visible : nombre de périodes à prévoir
     st.markdown("### Nombre de période à prévoir")
-    periods = st.slider(
+    periods = st.number_input(
         "Sélectionnez le nombre de mois à prévoir :",
         min_value=1,
-        max_value=12,
+        max_value=120,
         value=6,
         step=1
     )
 
+    # Générer les prévisions
     if st.button("Générer les prévisions"):
         if all(v == 0 for v in historical_data):
             st.error("Veuillez entrer des données historiques")
         else:
-            forecasts = holt_forecast(historical_data, periods=periods)
+            with st.spinner(f"Calcul des prévisions pour {periods} mois..."):
+                forecasts = holt_forecast(historical_data, periods=periods)
 
-            # Display results in table format
-            st.markdown("### Résultats des prévisions")
+                # Afficher résultats
+                st.markdown("### Résultats des prévisions")
 
-            forecast_months = []
-            current_date = datetime.now()
-            for i in range(periods):
-                forecast_date = current_date + timedelta(days=30*(i+1))
-                forecast_months.append(forecast_date.strftime("%B"))
+                forecast_months = []
+                current_date = datetime.now()
+                for i in range(periods):
+                    forecast_date = current_date + timedelta(days=30*(i+1))
+                    forecast_months.append(forecast_date.strftime("%B %Y"))
 
-            # Show values
-            st.markdown("#### Valeurs historiques")
-            st.write(pd.DataFrame({
-                "Mois": months,
-                "Valeurs": historical_data
-            }))
+                # Historique
+                st.markdown("#### Valeurs historiques")
+                st.dataframe(pd.DataFrame({
+                    "Mois": months,
+                    "Valeurs": historical_data
+                }), height=400)
 
-            st.markdown("#### Prévisions")
-            st.write(pd.DataFrame({
-                "Mois": forecast_months,
-                "Prévision": [round(val, 2) for val in forecasts]
-            }))
+                # Prévisions
+                st.markdown(f"#### Prévisions ({periods} mois)")
+                forecast_df = pd.DataFrame({
+                    "Mois": forecast_months,
+                    "Prévision": [round(val, 2) for val in forecasts],
+                    "Tendance": ["↑" if i > 0 and forecasts[i] > forecasts[i-1] else "↓" for i in range(len(forecasts))]
+                })
+                st.dataframe(forecast_df, height=600)
 
-            # Export button
-            csv_data = pd.DataFrame({
-                "Mois": forecast_months,
-                "Prévision": forecasts
-            })
-            csv = csv_data.to_csv(index=False, sep=";").encode('utf-8')
+                # Graphique
+                st.line_chart(forecast_df.set_index("Mois")["Prévision"], height=400)
 
-            st.download_button(
-                "Exporter les prévisions",
-                csv,
-                f"previsions_{selected_ean}.csv",
-                "text/csv"
-            )
+                # Export Excel
+                output_excel = BytesIO()
+                with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+                    forecast_df.to_excel(writer, index=False, sheet_name="Prévisions")
+                    writer.close()
+                    output_excel.seek(0)
+
+                st.download_button(
+                    label="📤 Exporter au format Excel (.xlsx)",
+                    data=output_excel,
+                    file_name=f"previsions_{selected_ean}_{periods}mois.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+                # Export CSV
+                csv = forecast_df.to_csv(index=False, sep=";").encode('utf-8')
+                st.download_button(
+                    "📥 Exporter au format CSV",
+                    csv,
+                    f"previsions_{selected_ean}_{periods}mois.csv",
+                    "text/csv"
+                )
 
 if __name__ == "__main__":
     main()
