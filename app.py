@@ -47,7 +47,7 @@ def main():
     # Reset button
     if st.button("🔄 Réinitialiser"):
         reset_session()
-        st.rerun()
+        st.experimental_rerun()  # Note : st.rerun() deprecated, on utilise experimental_rerun()
 
     # Load data
     try:
@@ -112,20 +112,27 @@ def main():
         except Exception as e:
             st.error(f"Erreur de lecture du fichier: {e}")
 
-    # Saisie manuelle si pas de fichier
+    # Saisie manuelle si pas de fichier ou données invalides
     if not historical_data:
         st.info("Ou saisir manuellement les données:")
         cols = st.columns(12)
         historical_data = []
         for i, col in enumerate(cols):
             with col:
-                historical_data.append(col.number_input(
+                val_str = col.text_input(
                     f"{i+1}",
-                    min_value=0.0,
-                    value=0.0,
-                    step=1.0,
-                    key=f"hist_{i}"
-                ))
+                    value="0",
+                    key=f"hist_str_{i}"
+                )
+                try:
+                    val = float(val_str.replace(',', '.'))
+                    if val < 0:
+                        st.warning(f"La valeur {val_str} à la position {i+1} est négative, elle sera remplacée par 0.")
+                        val = 0.0
+                except ValueError:
+                    st.warning(f"La valeur '{val_str}' à la position {i+1} n'est pas un nombre valide, elle sera remplacée par 0.")
+                    val = 0.0
+                historical_data.append(val)
 
     # Toujours visible : nombre de périodes à prévoir
     st.markdown("### Nombre de période à prévoir")
@@ -140,7 +147,7 @@ def main():
     # Générer les prévisions
     if st.button("Générer les prévisions"):
         if all(v == 0 for v in historical_data):
-            st.error("Veuillez entrer des données historiques")
+            st.error("Veuillez entrer des données historiques non nulles")
         else:
             with st.spinner(f"Calcul des prévisions pour {periods} mois..."):
                 forecasts = holt_forecast(historical_data, periods=periods)
